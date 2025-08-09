@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3 Patti — Betting Tracker (Fixed)</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+  <style>
+    .scrollbox::-webkit-scrollbar { height: 10px; width: 10px; }
+    .scrollbox::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 6px; }
+    .iter-entry { transition: background 0.12s ease; }
+    .disabled { opacity: 0.5; pointer-events: none; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-sky-50 to-indigo-50 min-h-screen">
+
+<div id="app" class="max-w-7xl mx-auto p-6">
+  <header class="mb-6">
+    <h1 class="text-3xl font-extrabold text-indigo-700">3 Patti — Betting Tracker</h1>
+    <p class="text-sm text-gray-600 mt-1">Rounds → multiple vertical iterations. Winner chosen per round only. Bets reserved live.</p>
+  </header>
+
+  <!-- Setup / controls -->
+  <section v-if="!gameStarted" class="bg-white shadow rounded p-6 mb-6">
+    <h2 class="text-xl font-semibold mb-4">Setup Players</h2>
+    <div class="flex gap-4 items-end">
+      <div>
+        <label class="block text-sm font-medium text-gray-700">Number of players</label>
+        <input v-model.number="setupCount" type="number" min="2" max="12" class="mt-1 block w-32 px-3 py-2 border rounded" />
+      </div>
+      <button @click="createPlayerInputs" class="px-4 py-2 bg-indigo-600 text-white rounded shadow">Create</button>
+      <div v-if="playerInputs.length">
+        <button @click="startGame" class="px-4 py-2 bg-green-600 text-white rounded shadow">Start Game</button>
+      </div>
+    </div>
+
+    <div v-if="playerInputs.length" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <template v-for="(p, i) in playerInputs" :key="i">
+        <div class="p-4 border rounded bg-gray-50">
+          <label class="block text-sm font-medium text-gray-700">Player {{ i+1 }} name</label>
+          <input v-model="p.name" class="mt-1 block w-full px-3 py-2 border rounded" placeholder="Name" />
+          <label class="block text-sm font-medium text-gray-700 mt-3">Starting wallet</label>
+          <input v-model.number="p.wallet" type="number" min="0" class="mt-1 block w-full px-3 py-2 border rounded" />
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- Main game -->
+  <section v-else class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+    <!-- Players panel -->
+    <aside class="lg:col-span-1 bg-white p-4 rounded shadow">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-lg">Players</h3>
+        <div class="text-sm text-gray-500">Round {{ roundNumber }}</div>
+      </div>
+
+      <ul class="space-y-3">
+        <li v-for="(p, i) in players" :key="p.name" class="flex items-center justify-between">
+          <div>
+            <div class="font-medium text-indigo-700">{{ p.name }}</div>
+            <div class="text-xs text-gray-500">Wallet: <span class="font-semibold">₹{{ p.wallet.toFixed(2) }}</span></div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm text-green-600 font-semibold">Avail</div>
+            <div class="text-lg font-bold text-gray-800">₹{{ available(p).toFixed(2) }}</div>
+          </div>
+        </li>
+      </ul>
+
+      <div class="mt-6 space-y-2">
+        <label class="block text-sm text-gray-600">Select winner (to settle round)</label>
+        <select v-model="selectedWinner" class="w-full px-3 py-2 border rounded">
+          <option value="">-- choose winner --</option>
+          <option v-for="p in players" :key="p.name" :value="p.name">{{ p.name }}</option>
+        </select>
+
+        <div class="flex gap-2 mt-3">
+          <button @click="settleRound" :disabled="!selectedWinner" class="flex-1 px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60">Settle Round</button>
+          <button @click="undoLastRound" :disabled="!undoSnapshot" class="px-3 py-2 bg-yellow-500 text-white rounded disabled:opacity-60">Undo</button>
+        </div>
+
+        <button @click="resetGame" class="w-full mt-2 px-3 py-2 bg-red-500 text-white rounded">Reset Game</button>
+      </div>
+    </aside>
+
+    <!-- Iterations grid -->
+    <main class="lg:col-span-2 bg-white rounded shadow p-4">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-lg font-semibold">Iterations (Current Round)</h3>
+          <p class="text-sm text-gray-500">Enter bets per iteration. Last row auto-adds when you start typing in it.</p>
+        </div>
+        <div class="text-sm text-gray-600">
+          Pot: <span class="font-bold text-indigo-700">₹{{ currentPot.toFixed(2) }}</span>
+        </div>
+      </div>
+
+      <div class="overflow-auto border rounded">
+        <table class="min-w-full text-sm">
+          <thead class="bg-indigo-50 sticky top-0 z-10">
+            <tr>
+              <th class="p-2 text-left w-20">Iter</th>
+              <th v-for="(p, idx) in players" :key="p.name" class="p-2 text-left">{{ p.name }}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y">
+            <tr v-for="(row, rIndex) in iterations" :key="rIndex" :class="{'bg-gray-50': (rIndex % 2 === 0)}">
+              <td class="p-2 align-top">{{ rIndex+1 }}</td>
+
+              <td v-for="(p, pIndex) in players" :key="p.name" class="p-2 align-top">
+                <input
+                  v-model="iterations[rIndex][pIndex]"
+                  @input="onBetInput(rIndex, pIndex)"
+                  :class="['w-full px-2 py-1 rounded border', inputClass(rIndex,pIndex)]"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  :placeholder="placeholderForPlayer(pIndex)"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- Right: History & info -->
+    <aside class="lg:col-span-1 bg-white rounded shadow p-4">
+      <h3 class="text-lg font-semibold mb-2">Round History</h3>
+      <div v-if="history.length === 0" class="text-sm text-gray-500">No rounds settled yet.</div>
+      <ul class="space-y-2 max-h-96 overflow-auto mt-2">
+        <li v-for="(h, idx) in history" :key="idx" class="p-2 border rounded">
+          <div class="flex justify-between text-sm">
+            <div>R{{ h.round }} • Winner: <span class="font-semibold">{{ h.winner }}</span></div>
+            <div>Pot: <span class="font-semibold">₹{{ h.pot.toFixed(2) }}</span></div>
+          </div>
+          <div class="mt-1 text-xs text-gray-600">
+            {{ summaryCommitted(h.committed) }}
+          </div>
+        </li>
+      </ul>
+
+      <div class="mt-4 text-xs text-gray-500">
+        Tip: use Tab to move between cells. Mouse-wheel (or trackpad) scrolls the iterations.
+      </div>
+    </aside>
+  </section>
+
+  <!-- Footer -->
+  <footer class="mt-6 text-center text-xs text-gray-500">
+    
+  </footer>
+</div>
+
+<script>
+  const { createApp, reactive, ref, computed, nextTick } = Vue;
+
+  createApp({
+    setup() {
+      const gameStarted = ref(false);
+      const setupCount = ref(3);
+      const playerInputs = reactive([]);
+      const players = reactive([]);
+      const iterations = reactive([]);
+      const roundNumber = ref(1);
+      const selectedWinner = ref("");
+      const history = reactive([]);
+      const undoSnapshot = ref(null);
+
+      const currentPot = computed(() => {
+        let pot = 0;
+        for (let r=0; r<iterations.length; r++){
+          for (let p=0; p<players.length; p++){
+            const v = parseFloat(iterations[r][p]) || 0;
+            pot += v;
+          }
+        }
+        return pot;
+      });
+
+      function createPlayerInputs() {
+        playerInputs.splice(0);
+        for (let i=0;i<setupCount.value;i++) {
+          playerInputs.push({ name: `Player ${i+1}`, wallet: 1000 });
+        }
+      }
+
+      function startGame() {
+        if (!playerInputs.length) { alert("Create players first."); return; }
+        players.splice(0);
+        playerInputs.forEach(p => {
+          players.push({ name: p.name.trim() || ("Player"), wallet: parseFloat(p.wallet) || 0, reserved: 0 });
+        });
+        iterations.splice(0);
+        iterations.push(new Array(players.length).fill(""));
+        roundNumber.value = 1;
+        history.splice(0);
+        selectedWinner.value = "";
+        undoSnapshot.value = null;
+        gameStarted.value = true;
+        // keep focus behavior minimal to avoid the previous bug
+      }
+
+      function resetGame() {
+        if (!confirm("Reset the whole game?")) return;
+        playerInputs.splice(0);
+        players.splice(0);
+        iterations.splice(0);
+        history.splice(0);
+        selectedWinner.value = "";
+        gameStarted.value = false;
+      }
+
+      function placeholderForPlayer(index) { return "0.00"; }
+
+      function available(p) {
+        let reserved = 0;
+        for (let r=0;r<iterations.length;r++){
+          const v = parseFloat(iterations[r][players.indexOf(p)]) || 0;
+          reserved += v;
+        }
+        return Math.max(0, p.wallet - reserved);
+      }
+
+      // FIXED onBetInput: add new row but DO NOT move focus away.
+      function onBetInput(rIndex, pIndex) {
+        let raw = iterations[rIndex][pIndex];
+        if (raw === null || raw === undefined) raw = "";
+        if (raw !== "" && Number(raw) < 0) {
+          iterations[rIndex][pIndex] = "";
+          return;
+        }
+
+        for (let pi=0; pi<players.length; pi++){
+          let reserved = 0;
+          for (let rr=0; rr<iterations.length; rr++){
+            reserved += parseFloat(iterations[rr][pi]) || 0;
+          }
+          if (reserved - 1e-9 > players[pi].wallet) {
+            iterations[rIndex][pIndex] = "";
+            alert(`${players[pi].name} would exceed wallet limit. Reduce bet.`);
+            return;
+          }
+        }
+
+        // Add a new blank row when last row has any value.
+        // IMPORTANT: we DO NOT focus the new row (fixes "digits drop vertically" bug).
+        const lastRow = iterations[iterations.length - 1];
+        const anyVal = lastRow.some(v => (v !== null && v !== undefined && v.toString().trim() !== ""));
+        if (anyVal && iterations.length < 200) { // safety cap
+          iterations.push(new Array(players.length).fill(""));
+          // DO NOT call focusCell here — that caused the bug.
+        }
+      }
+
+      function computeReserved() {
+        const reserved = players.map(_=>0);
+        for (let r=0;r<iterations.length;r++){
+          for (let p=0;p<players.length;p++){
+            reserved[p] += parseFloat(iterations[r][p]) || 0;
+          }
+        }
+        return reserved;
+      }
+
+      function settleRound() {
+        if (!selectedWinner.value) { alert("Select a winner first."); return; }
+
+        const reserved = computeReserved();
+        for (let i=0;i<players.length;i++){
+          if (reserved[i] - 1e-9 > players[i].wallet) {
+            alert(`${players[i].name} reserved ${reserved[i]} which exceeds wallet ${players[i].wallet}. Fix bets.`);
+            return;
+          }
+        }
+
+        const pot = reserved.reduce((s,v)=>s+v,0);
+        if (pot <= 0) {
+          if (!confirm("No bets placed. Do you still want to settle (no-op)?")) return;
+        }
+
+        undoSnapshot.value = {
+          players: JSON.parse(JSON.stringify(players)),
+          history: JSON.parse(JSON.stringify(history)),
+          roundNumber: roundNumber.value
+        };
+
+        players.forEach((p,i)=> p.wallet = +(p.wallet - reserved[i]) );
+        const winner = players.find(p => p.name === selectedWinner.value);
+        if (!winner) { alert("Winner not found."); return; }
+        winner.wallet = +(winner.wallet + pot);
+
+        const committed = {};
+        players.forEach((p,i)=>committed[p.name] = reserved[i]);
+
+        history.unshift({
+          round: roundNumber.value,
+          pot: pot,
+          winner: winner.name,
+          committed
+        });
+
+        iterations.splice(0);
+        iterations.push(new Array(players.length).fill(""));
+        selectedWinner.value = "";
+        roundNumber.value++;
+      }
+
+      function undoLastRound() {
+        if (!undoSnapshot.value) { alert("Nothing to undo."); return; }
+        const snap = undoSnapshot.value;
+        players.splice(0);
+        snap.players.forEach(p => players.push(p));
+        history.splice(0);
+        snap.history.forEach(h => history.push(h));
+        roundNumber.value = snap.roundNumber;
+        iterations.splice(0);
+        iterations.push(new Array(players.length).fill(""));
+        undoSnapshot.value = null;
+      }
+
+      function summaryCommitted(committed) {
+        return Object.entries(committed).map(([k,v]) => `${k}: ₹${v.toFixed(2)}`).join(", ");
+      }
+
+      return {
+        gameStarted, setupCount, playerInputs, createPlayerInputs,
+        startGame, resetGame, players, iterations, onBetInput, inputClass: ()=>"",
+        placeholderForPlayer, available, currentPot, selectedWinner, settleRound,
+        history, roundNumber, undoLastRound, undoSnapshot, summaryCommitted
+      };
+    }
+  }).mount('#app');
+</script>
+</body>
+</html>
