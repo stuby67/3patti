@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teen Patti Game</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Vue.js -->
+    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
+</head>
+<body>
+    <div id="app">
+        <h1>Teen Patti Game</h1>
+        <div class="players">
+            <div class="player" v-for="(player, index) in players" :key="index">
+                <h2>{{ player.name }}</h2>
+                <div class="cards">
+                    <div v-for="card in player.cards" :key="card.rank + card.suit" class="card">
+                        {{ card.rank }}{{ card.suit }}
+                    </div>
+                </div>
+                <input 
+                    type="number" 
+                    v-model.number="player.bet" 
+                    placeholder="Enter bet" 
+                    class="bet-input"
+                >
+                <p>Balance: ₹{{ player.balance }}</p>
+            </div>
+        </div>
+        <div class="controls">
+            <button @click="dealCards">Deal Cards</button>
+            <button @click="determineWinner">Show Winner</button>
+            <p v-if="winner">🏆 Winner: {{ winner }}</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
