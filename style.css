@@ -1,0 +1,15 @@
+.scrollbox::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.scrollbox::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+.iter-entry {
+  transition: background 0.12s ease;
+}
+.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
